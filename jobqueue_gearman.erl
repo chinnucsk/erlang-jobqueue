@@ -1,16 +1,17 @@
 -module(jobqueue_gearman).
 -author('Samuel Stauffer <samuel@descolada.com>').
 
--export([start/0, stop/0]).
--import(gearman_worker, [start/2]).
+-export([start/0, start/2, stop/0]).
 
 -include_lib("gearman.hrl").
 -include_lib("jobqueue.hrl").
 
 start() ->
+    start([{"127.0.0.1"}], 5).
+start(Servers, NumWorkers) ->
     jobqueue:start(),
     gearman_worker:start(
-        lists:duplicate(5, {"127.0.0.1"}),
+        lists:flatten(lists:duplicate(NumWorkers, Servers)),
         [
             {"jobqueue.insert_job", serialized_func(fun insert_job/2)},
             {"jobqueue.find_job", serialized_func(fun find_job/2)},
@@ -59,7 +60,8 @@ job_completed(_Task, Args) ->
 job_failed(_Task, Args) ->
     Handle = table_lookup(Args, "handle"),
     Reason = table_lookup(Args, "reason"),
-    case jobqueue:job_failed(Handle, Reason) of
+    DelayRetry = table_lookup(Args, "delay_retry", 0),
+    case jobqueue:job_failed(Handle, Reason, DelayRetry) of
         ok ->
             {obj, [{"success", true}]};
         Else ->

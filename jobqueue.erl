@@ -2,7 +2,7 @@
 -author('Samuel Stauffer <samuel@descolada.com>').
 
 -export([init_datastore/0, start/0, stop/0, insert_job/5, find_job/1,
-         job_completed/1, job_failed/2,
+         job_completed/1, job_failed/2, job_failed/3,
          grab_job/1, grab_job/2, grab_one_job/1, grab_one_job/2]).
 
 -define(GRAB_FOR, 60*60). %% Default time to hold a job before giving it to another worker
@@ -27,16 +27,19 @@ start() ->
 stop() ->
     mnesia:stop().
 
+delay_to_timestamp(Delay) ->
+    case Delay of
+        _ when is_integer(Delay), Delay > 1000000000 ->
+            Delay;
+        _ when is_integer(Delay) ->
+            Delay + nows()
+    end.
+
 insert_job(Func, Arg, UniqKey, AvailableAfter, Priority) ->
     %% TODO: Make sure there isn't already a job with UniqKey if it's defined
     JobID = new_id(),
     Now = nows(),
-    case AvailableAfter of
-        _ when AvailableAfter > 1000000000 ->
-            AvailableAfter2 = AvailableAfter;
-        _ ->
-            AvailableAfter2 = Now + AvailableAfter
-    end,
+    AvailableAfter2 = delay_to_timestamp(AvailableAfter),
     Row = #job{job_id=JobID, func=Func, arg=Arg, uniqkey=UniqKey,
                insert_time=Now, available_after=AvailableAfter2,
                priority=Priority},
@@ -67,13 +70,16 @@ job_completed(JobID) ->
     Res.
 
 job_failed(JobID, Reason) ->
-    Now = nows(),
+    job_failed(JobID, Reason, 0).
+job_failed(JobID, Reason, DelayRetry) ->
     F = fun() ->
         case mnesia:read(job, JobID) of
             [] ->
                 not_found;
             [Job] ->
-                mnesia:write(Job#job{available_after=Now, failures=[Reason|Job#job.failures]})
+                mnesia:write(Job#job{
+                    available_after=delay_to_timestamp(DelayRetry),
+                    failures=[Reason|Job#job.failures]})
         end
     end,
     {atomic, Res} = mnesia:transaction(F),
