@@ -59,7 +59,7 @@ find_job(Funcs) ->
 
 job_completed(JobID) ->
     F = fun() ->
-        case mnesia:read(job, JobID) of
+        case mnesia:read({job, JobID}) of
             [] ->
                 not_found;
             _ ->
@@ -73,7 +73,7 @@ job_failed(JobID, Reason) ->
     job_failed(JobID, Reason, 0).
 job_failed(JobID, Reason, DelayRetry) ->
     F = fun() ->
-        case mnesia:read(job, JobID) of
+        case mnesia:read({job, JobID}) of
             [] ->
                 not_found;
             [Job] ->
@@ -102,7 +102,7 @@ grab_one_job(JobID) ->
 grab_one_job(JobID, GrabFor) ->
     Now = nows(),
     F = fun() ->
-        [Job] = mnesia:read(job, JobID),
+        [Job] = mnesia:read({job, JobID}),
         if
             Job#job.available_after < Now ->
                 ok = mnesia:write(Job#job{available_after=Now + GrabFor}),
