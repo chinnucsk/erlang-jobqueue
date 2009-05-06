@@ -51,7 +51,9 @@ find_job(_Task, Args) ->
         {ok, Job} ->
             {obj, [
                 {"handle", Job#job.job_id},
-                {"arg", Job#job.arg}]}
+                {"func", Job#job.func},
+                {"arg", Job#job.arg},
+                {"failures", Job#job.arg}]}
     end.
 
 job_completed(_Task, Args) ->
