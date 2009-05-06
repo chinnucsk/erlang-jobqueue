@@ -37,9 +37,12 @@ insert_job(_Task, Args) ->
                 {"handle", JobID}]}
     end.
 
+% list_jobs(_)
+
 find_job(_Task, Args) ->
     Funcs = table_lookup(Args, "funcs"),
-    case jobqueue:find_job(Funcs) of
+    Timeout = table_lookup(Args, "timeout", 0),
+    case jobqueue:find_job(Funcs, Timeout) of
         {fail, _Reason} ->
             null;
         {ok, Job} ->
@@ -71,7 +74,7 @@ job_failed(_Task, Args) ->
 table_lookup(Table, Key) ->
     case lists:keysearch(Key, 1, Table) of
         false ->
-            throw("Required key not found table");
+            throw("Required key not found in table");
         {value, {Key, Value}} ->
             Value
     end.

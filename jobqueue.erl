@@ -1,11 +1,10 @@
 -module(jobqueue).
 -author('Samuel Stauffer <samuel@descolada.com>').
 
--export([init_datastore/0, start/0, stop/0, insert_job/5, find_job/1,
-         job_completed/1, job_failed/2, job_failed/3,
-         grab_job/1, grab_job/2, grab_one_job/1, grab_one_job/2]).
+-export([init_datastore/0, start/0, stop/0, insert_job/5, find_job/1, find_job/2,
+         job_completed/1, job_failed/2, job_failed/3, grab_job/2, grab_one_job/2]).
 
--define(GRAB_FOR, 60*60). %% Default time to hold a job before giving it to another worker
+-define(DEFAULT_WORK_TIMEOUT, 60*60). %% Default time to hold a job before giving it to another worker
 
 -include_lib("stdlib/include/qlc.hrl").
 -include_lib("jobqueue.hrl").
@@ -49,13 +48,19 @@ insert_job(Func, Arg, UniqKey, AvailableAfter, Priority) ->
     {atomic, ok} = mnesia:transaction(F),
     {ok, JobID}.
 
+% list_jobs()
+
 find_job(Funcs) ->
+    find_job(Funcs, 0).
+find_job(Funcs, 0) ->
+    find_job(Funcs, ?DEFAULT_WORK_TIMEOUT);
+find_job(Funcs, Timeout) ->
     Now = nows(),
     Query = qlc:q([X#job.job_id || X <- mnesia:table(job),
                         lists:member(X#job.func, Funcs),
                         X#job.available_after < Now]),
     JobIDs = execute_query(Query, 10),
-    grab_job(JobIDs).
+    grab_job(JobIDs, Timeout).
 
 job_completed(JobID) ->
     F = fun() ->
@@ -85,27 +90,23 @@ job_failed(JobID, Reason, DelayRetry) ->
     {atomic, Res} = mnesia:transaction(F),
     Res.
 
-grab_job(JobIDs) ->
-    grab_job(JobIDs, ?GRAB_FOR).
-grab_job([], _GrabFor) ->
+grab_job([], _Timeout) ->
     {fail, no_jobs};
-grab_job([JobID|JobIDs], GrabFor) ->
-    case grab_one_job(JobID, GrabFor) of
+grab_job([JobID|JobIDs], Timeout) ->
+    case grab_one_job(JobID, Timeout) of
         {ok, Job} ->
             {ok, Job};
         {fail, lost_race} ->
-            grab_job(JobIDs, GrabFor)
+            grab_job(JobIDs, Timeout)
     end.
 
-grab_one_job(JobID) ->
-    grab_one_job(JobID, ?GRAB_FOR).
-grab_one_job(JobID, GrabFor) ->
+grab_one_job(JobID, Timeout) ->
     Now = nows(),
     F = fun() ->
         [Job] = mnesia:read({job, JobID}),
         if
             Job#job.available_after < Now ->
-                ok = mnesia:write(Job#job{available_after=Now + GrabFor}),
+                ok = mnesia:write(Job#job{available_after=Now + Timeout}),
                 {ok, Job};
             true ->
                 {fail, lost_race}
