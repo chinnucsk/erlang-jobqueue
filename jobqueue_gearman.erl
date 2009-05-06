@@ -1,7 +1,7 @@
 -module(jobqueue_gearman).
 -author('Samuel Stauffer <samuel@descolada.com>').
 
--export([start/0, start/2, stop/0]).
+-export([start/0, start/2, stop/0, objectify/1]).
 
 -include_lib("gearman.hrl").
 -include_lib("jobqueue.hrl").
@@ -13,6 +13,7 @@ start(Servers, NumWorkers) ->
     gearman_worker:start(
         lists:flatten(lists:duplicate(NumWorkers, Servers)),
         [
+            {"jobqueue.stats", serialized_func(fun stats/2)},
             {"jobqueue.insert_job", serialized_func(fun insert_job/2)},
             {"jobqueue.find_job", serialized_func(fun find_job/2)},
             {"jobqueue.job_completed", serialized_func(fun job_completed/2)},
@@ -24,7 +25,9 @@ stop() ->
 
 %%
 
-%% Arguments: func, arg, uniqkey, available_after, priority
+stats(_Task, _Args) ->
+    objectify(jobqueue:stats()).
+
 insert_job(_Task, Args) ->
     Func = table_lookup(Args, "func"),
     Arg = table_lookup(Args, "arg"),
@@ -70,6 +73,21 @@ job_failed(_Task, Args) ->
         Else ->
             {obj, [{"success", false}, {"error", list_to_binary(atom_to_list(Else))}]}
     end.
+
+%% Utility functions
+
+objectify(Atom) when is_atom(Atom) ->
+    atom_to_list(Atom);
+objectify(List) when is_list(List) ->
+    {obj, objectify_list(List)};
+objectify(Tuple) when is_tuple(Tuple) ->
+    list_to_tuple(objectify_list(tuple_to_list(Tuple)));
+objectify(Other) ->
+    Other.
+objectify_list([]) ->
+    [];
+objectify_list([Head|Rest]) ->
+    [objectify(Head)|objectify_list(Rest)].
 
 table_lookup(Table, Key) ->
     case lists:keysearch(Key, 1, Table) of

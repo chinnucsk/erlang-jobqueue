@@ -1,7 +1,8 @@
 -module(jobqueue).
 -author('Samuel Stauffer <samuel@descolada.com>').
 
--export([init_datastore/0, start/0, stop/0, insert_job/5, find_job/1, find_job/2,
+-export([init_datastore/0, start/0, stop/0, stats/0, job_counts/0, insert_job/5,
+         find_job/1, find_job/2,
          job_completed/1, job_failed/2, job_failed/3, grab_job/2, grab_one_job/2]).
 
 -define(DEFAULT_WORK_TIMEOUT, 60*60). %% Default time to hold a job before giving it to another worker
@@ -12,6 +13,9 @@
 init_datastore() ->
     mnesia:create_schema([node()]),
     mnesia:start(),
+    mnesia:create_table(job_count,
+            [{attributes, record_info(fields, job_count)},
+             {disc_copies, [node()]}]),
     mnesia:create_table(job,
             [{attributes, record_info(fields, job)},
              {disc_only_copies, [node()]},
@@ -26,11 +30,11 @@ start() ->
 stop() ->
     mnesia:stop().
 
-delay_to_timestamp(Delay) ->
+delay_to_timestamp(Delay) when is_integer(Delay)->
     case Delay of
-        _ when is_integer(Delay), Delay > 1000000000 ->
+        _ when Delay > 1000000000 ->
             Delay;
-        _ when is_integer(Delay) ->
+        _ ->
             Delay + nows()
     end.
 
@@ -46,9 +50,20 @@ insert_job(Func, Arg, UniqKey, AvailableAfter, Priority) ->
             mnesia:write(Row)
         end,
     {atomic, ok} = mnesia:transaction(F),
+    mnesia:dirty_update_counter(job_count, Func, 1),
     {ok, JobID}.
 
-% list_jobs()
+stats() ->
+    [
+        {num_jobs, mnesia:table_info(job, size)},
+        {job_counts, job_counts()}
+    ].
+
+job_counts() ->
+    execute_query(qlc:q(
+        [{X#job_count.func, X#job_count.count} || X <- mnesia:table(job_count)])).
+
+% list_jobs(Func) ->
 
 find_job(Funcs) ->
     find_job(Funcs, 0).
@@ -67,8 +82,14 @@ job_completed(JobID) ->
         case mnesia:read({job, JobID}) of
             [] ->
                 not_found;
-            _ ->
-                mnesia:delete({job, JobID})
+            [Job] ->
+                case mnesia:delete({job, JobID}) of
+                    ok ->
+                        mnesia:dirty_update_counter(job_count, Job#job.func, -1),
+                        ok;
+                    Else ->
+                        Else
+                end
         end
     end,
     {atomic, Res} = mnesia:transaction(F),
@@ -115,10 +136,10 @@ grab_one_job(JobID, Timeout) ->
     {atomic, Res} = mnesia:transaction(F),
     Res.
 
-% do(Q) ->
-%     F = fun() -> qlc:e(Q) end,
-%     {atomic, Val} = mnesia:transaction(F),
-%     Val.
+execute_query(Query) ->
+    F = fun() -> qlc:e(Query) end,
+    {atomic, Val} = mnesia:transaction(F),
+    Val.
 
 execute_query(Query, Limit) ->
     F = fun() ->
