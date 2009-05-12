@@ -1,29 +1,43 @@
 -module(jobqueue_gearman).
 -author('Samuel Stauffer <samuel@descolada.com>').
 
+% -behaviour(gen_server).
+
 -export([start/0, start/2, stop/0, objectify/1]).
+
+%% gen_server callbacks
+% -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
+%          code_change/3]).
 
 -include_lib("gearman.hrl").
 -include_lib("jobqueue.hrl").
+
+-record(state, {}).
 
 start() ->
     start([{"127.0.0.1"}], 5).
 start(Servers, NumWorkers) ->
     jobqueue:start(),
-    gearman_worker:start(
-        lists:flatten(lists:duplicate(NumWorkers, Servers)),
-        [
-            {"jobqueue.stats", serialized_func(fun stats/2)},
-            {"jobqueue.insert_job", serialized_func(fun insert_job/2)},
-            {"jobqueue.find_job", serialized_func(fun find_job/2)},
-            {"jobqueue.job_completed", serialized_func(fun job_completed/2)},
-            {"jobqueue.job_failed", serialized_func(fun job_failed/2)}
-        ]).
+    start_workers(lists:flatten(lists:duplicate(NumWorkers, Servers))).
+
+start_workers([]) ->
+    [];
+start_workers([Server|Servers]) ->
+    [gearman_worker:start(Server, functions())|start_workers(Servers)].
 
 stop() ->
     jobqueue:stop().
 
 %%
+
+functions() ->
+    [
+        {"jobqueue.stats", serialized_func(fun stats/2)},
+        {"jobqueue.insert_job", serialized_func(fun insert_job/2)},
+        {"jobqueue.find_job", serialized_func(fun find_job/2)},
+        {"jobqueue.job_completed", serialized_func(fun job_completed/2)},
+        {"jobqueue.job_failed", serialized_func(fun job_failed/2)}
+    ].
 
 stats(_Task, _Args) ->
     objectify(jobqueue:stats()).
