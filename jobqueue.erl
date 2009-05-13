@@ -18,7 +18,7 @@ init_datastore() ->
              {disc_copies, [node()]}]),
     mnesia:create_table(job,
             [{attributes, record_info(fields, job)},
-             {disc_only_copies, [node()]},
+             {disc_copies, [node()]},
              {index, [func, uniqkey, available_after]}]),
     mnesia:stop().
 
