@@ -12,8 +12,6 @@
 -include_lib("gearman.hrl").
 -include_lib("jobqueue.hrl").
 
--record(state, {}).
-
 start() ->
     start([{"127.0.0.1"}], 5).
 start(Servers, NumWorkers) ->
@@ -34,7 +32,7 @@ functions() ->
     [
         {"jobqueue.stats", serialized_func(fun stats/2)},
         {"jobqueue.insert_job", serialized_func(fun insert_job/2)},
-        {"jobqueue.find_job", serialized_func(fun find_job/2)},
+        {"jobqueue.find_jobs", serialized_func(fun find_jobs/2)},
         {"jobqueue.job_completed", serialized_func(fun job_completed/2)},
         {"jobqueue.job_failed", serialized_func(fun job_failed/2)}
     ].
@@ -54,20 +52,19 @@ insert_job(_Task, Args) ->
                 {"handle", JobID}]}
     end.
 
-% list_jobs(_)
-
-find_job(_Task, Args) ->
+find_jobs(_Task, Args) ->
     Funcs = table_lookup(Args, "funcs"),
+    Count = table_lookup(Args, "count"),
     Timeout = table_lookup(Args, "timeout", 0),
-    case jobqueue:find_job(Funcs, Timeout) of
-        {fail, _Reason} ->
-            null;
-        {ok, Job} ->
-            {obj, [
+    case jobqueue:find_jobs(Funcs, Count, Timeout) of
+        [] ->
+            [];
+        Jobs when is_list(Jobs) ->
+            [{obj, [
                 {"handle", Job#job.job_id},
                 {"func", Job#job.func},
                 {"arg", Job#job.arg},
-                {"failures", Job#job.arg}]}
+                {"failures", Job#job.failures}]} || Job <- Jobs]
     end.
 
 job_completed(_Task, Args) ->
