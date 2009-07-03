@@ -21,71 +21,97 @@ start(Servers, NumWorkers) ->
 start_workers([]) ->
     [];
 start_workers([Server|Servers]) ->
-    [gearman_worker:start(Server, functions())|start_workers(Servers)].
+    [gearman_worker:start(Server, [{"jobqueue", fun dispatcher/1}])|start_workers(Servers)].
 
 stop() ->
     jobqueue:stop().
 
 %%
 
-functions() ->
-    [
-        {"jobqueue.stats", serialized_func(fun stats/2)},
-        {"jobqueue.insert_job", serialized_func(fun insert_job/2)},
-        {"jobqueue.find_jobs", serialized_func(fun find_jobs/2)},
-        {"jobqueue.job_completed", serialized_func(fun job_completed/2)},
-        {"jobqueue.job_failed", serialized_func(fun job_failed/2)}
-    ].
+dispatcher(Task) ->
+    Zlib = zlib:open(),
+    {ok, Args} = decode_args(Zlib, Task#task.arg),
+    Method = list_to_atom(binary_to_list(table_lookup(Args, "method"))),
+    {obj, Params} = table_lookup(Args, "params"),
+    Response = dispatch(Method, Params),
+    EncResponse = encode_args(Zlib, Response),
+    zlib:close(Zlib),
+    EncResponse.
 
-stats(_Task, _Args) ->
-    objectify(jobqueue:stats()).
-
-insert_job(_Task, Args) ->
-    Func = table_lookup(Args, "func"),
-    Arg = table_lookup(Args, "arg"),
-    UniqKey = table_lookup(Args, "uniqkey", ""),
-    AvailableAfter = table_lookup(Args, "available_after", 0),
-    Priority = table_lookup(Args, "priority", 0),
-    case jobqueue:insert_job(Func, Arg, UniqKey, AvailableAfter, Priority) of
-        {ok, JobID} ->
-            {obj, [
-                {"handle", JobID}]}
+dispatch(Method, Params) ->
+    try service(Method, Params) of
+        {ok, Result} ->
+            format_result(Result);
+        {error, ErrorType, ErrorMessage} ->
+            format_error(ErrorType, ErrorMessage)
+    catch
+        error:badarg ->
+            format_error(<<"DispatchError">>, <<"Invalid set of params">>);
+        Exc1:Exc2 ->
+            format_error(list_to_binary([atom_to_list(Exc1), <<":">>, atom_to_list(Exc2)]), "Fail")
     end.
 
-find_jobs(_Task, Args) ->
-    Funcs = table_lookup(Args, "funcs"),
-    Count = table_lookup(Args, "count"),
-    Timeout = table_lookup(Args, "timeout", 0),
+format_result(Result) ->
+    {obj, [{<<"error">>, null}, {<<"result">>, Result}]}.
+
+format_error(ErrorType, ErrorMessage) ->
+    {obj, [
+        {<<"result">>, null},
+        {<<"error">>,
+            {obj, [
+                {<<"type">>, ErrorType},
+                {<<"message">>, ErrorMessage}
+            ]}}
+    ]}.
+
+service(stats, _Params) ->
+    {ok, objectify(jobqueue:stats())};
+service(insert_job, Params) ->
+    Func = table_lookup(Params, "func"),
+    Arg = table_lookup(Params, "arg"),
+    UniqKey = table_lookup(Params, "uniqkey", ""),
+    AvailableAfter = table_lookup(Params, "available_after", 0),
+    Priority = table_lookup(Params, "priority", 0),
+    case jobqueue:insert_job(Func, Arg, UniqKey, AvailableAfter, Priority) of
+        {ok, JobID} ->
+            {ok, {obj, [
+                {"handle", JobID}]}}
+    end;
+service(find_jobs, Params) ->
+    io:format("~p~n", [Params]),
+    Funcs = table_lookup(Params, "funcs"),
+    Count = table_lookup(Params, "count"),
+    Timeout = table_lookup(Params, "timeout", 0),
     case jobqueue:find_jobs(Funcs, Count, Timeout) of
         [] ->
-            [];
+            {ok, []};
         Jobs when is_list(Jobs) ->
-            [{obj, [
+            {ok, [{obj, [
                 {"handle", Job#job.job_id},
                 {"func", Job#job.func},
                 {"arg", Job#job.arg},
-                {"failures", Job#job.failures}]} || Job <- Jobs]
-    end.
-
-job_completed(_Task, Args) ->
-    Handle = table_lookup(Args, "handle"),
+                {"failures", Job#job.failures}]} || Job <- Jobs]}
+    end;
+service(job_completed, Params) ->
+    Handle = table_lookup(Params, "handle"),
     case jobqueue:job_completed(Handle) of
         ok ->
-            {obj, [{"success", true}]};
+            {ok, null};
         Else ->
-            {obj, [{"success", false}, {"error", list_to_binary(atom_to_list(Else))}]}
-    end.
-
-job_failed(_Task, Args) ->
-    Handle = table_lookup(Args, "handle"),
-    Reason = table_lookup(Args, "reason"),
-    DelayRetry = table_lookup(Args, "delay_retry", 0),
+            {error, <<"JobQueueError">>, list_to_binary(atom_to_list(Else))}
+    end;
+service(job_failed, Params) ->
+    Handle = table_lookup(Params, "handle"),
+    Reason = table_lookup(Params, "reason"),
+    DelayRetry = table_lookup(Params, "delay_retry", 0),
     case jobqueue:job_failed(Handle, Reason, DelayRetry) of
         ok ->
-            {obj, [{"success", true}]};
+            {ok, null};
         Else ->
-            {obj, [{"success", false}, {"error", list_to_binary(atom_to_list(Else))}]}
-    end.
+            {error, <<"JobQueueError">>, list_to_binary(atom_to_list(Else))}
+    end;
+service(_Method, _Params) ->
+    {error, <<"DispatchError">>, <<"Unknown method">>}.
 
 %% Utility functions
 
@@ -117,13 +143,20 @@ table_lookup(Table, Key, Default) ->
             Value
     end.
 
-serialized_func(Func) ->
-    fun(Task) ->
-        case rfc4627:decode(Task#task.arg) of
-            {ok, {obj, Args}, _} ->
-                Res = Func(Task, Args),
-                rfc4627:encode(Res);
-            _ ->
-                throw("Received invalid json object for function arguments")
-        end
+decode_args(Zlib, Data) ->
+    ok = zlib:inflateInit(Zlib),
+    Data2 = list_to_binary(zlib:inflate(Zlib, Data)),
+    zlib:inflateEnd(Zlib),
+    case rfc4627:decode(Data2) of
+        {ok, {obj, Args}, _} ->
+            {ok, Args};
+        _ ->
+            throw("Received invalid json object for function arguments")
     end.
+
+encode_args(Zlib, Data) ->
+    EncData = rfc4627:encode(Data),
+    zlib:deflateInit(Zlib),
+    CompData = list_to_binary(zlib:deflate(Zlib, EncData, finish)),
+    zlib:deflateEnd(Zlib),
+    CompData.
