@@ -129,19 +129,10 @@ objectify_list([Head|Rest]) ->
     [objectify(Head)|objectify_list(Rest)].
 
 table_lookup(Table, Key) ->
-    case lists:keysearch(Key, 1, Table) of
-        false ->
-            throw("Required key not found in table");
-        {value, {Key, Value}} ->
-            Value
-    end.
+    {Key, Value} = proplists:lookup(Key, Table),
+    Value.
 table_lookup(Table, Key, Default) ->
-    case lists:keysearch(Key, 1, Table) of
-        false ->
-            Default;
-        {value, {Key, Value}} ->
-            Value
-    end.
+    proplists:get_value(Key, Table, Default).
 
 decode_args(Zlib, Data) ->
     ok = zlib:inflateInit(Zlib),
