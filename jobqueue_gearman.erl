@@ -72,11 +72,8 @@ service(insert_job, Params) ->
     UniqKey = table_lookup(Params, "uniqkey", ""),
     AvailableAfter = table_lookup(Params, "available_after", 0),
     Priority = table_lookup(Params, "priority", 0),
-    case jobqueue:insert_job(Func, Arg, UniqKey, AvailableAfter, Priority) of
-        {ok, JobID} ->
-            {ok, {obj, [
-                {"handle", JobID}]}}
-    end;
+    {ok, JobID} = jobqueue:insert_job(Func, Arg, UniqKey, AvailableAfter, Priority),
+    {ok, {obj, [{"handle", JobID}]}};
 service(find_jobs, Params) ->
     Funcs = table_lookup(Params, "funcs"),
     Count = table_lookup(Params, "count"),
