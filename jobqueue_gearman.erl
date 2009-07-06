@@ -78,7 +78,6 @@ service(insert_job, Params) ->
                 {"handle", JobID}]}}
     end;
 service(find_jobs, Params) ->
-    io:format("~p~n", [Params]),
     Funcs = table_lookup(Params, "funcs"),
     Count = table_lookup(Params, "count"),
     Timeout = table_lookup(Params, "timeout", 0),
@@ -115,24 +114,15 @@ service(_Method, _Params) ->
 
 %% Utility functions
 
-objectify(Atom) when is_atom(Atom) ->
-    atom_to_list(Atom);
-objectify(List) when is_list(List) ->
-    {obj, objectify_list(List)};
-objectify(Tuple) when is_tuple(Tuple) ->
-    list_to_tuple(objectify_list(tuple_to_list(Tuple)));
-objectify(Other) ->
-    Other.
-objectify_list([]) ->
-    [];
-objectify_list([Head|Rest]) ->
-    [objectify(Head)|objectify_list(Rest)].
+objectify(Atom) when is_atom(Atom) -> atom_to_list(Atom);
+objectify(List) when is_list(List) -> {obj, objectify_list(List)};
+objectify(Tuple) when is_tuple(Tuple) -> list_to_tuple(objectify_list(tuple_to_list(Tuple)));
+objectify(Other) -> Other.
+objectify_list([]) -> [];
+objectify_list([Head|Rest]) -> [objectify(Head)|objectify_list(Rest)].
 
-table_lookup(Table, Key) ->
-    {Key, Value} = proplists:lookup(Key, Table),
-    Value.
-table_lookup(Table, Key, Default) ->
-    proplists:get_value(Key, Table, Default).
+table_lookup(Table, Key) -> {Key, Value} = proplists:lookup(Key, Table), Value.
+table_lookup(Table, Key, Default) -> proplists:get_value(Key, Table, Default).
 
 decode_args(Zlib, Data) ->
     ok = zlib:inflateInit(Zlib),
