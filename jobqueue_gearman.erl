@@ -45,10 +45,10 @@ dispatch(Method, Params) ->
         {error, ErrorType, ErrorMessage} ->
             format_error(ErrorType, ErrorMessage)
     catch
-        error:badarg ->
+        error:{badmatch, _} ->
             format_error(<<"DispatchError">>, <<"Invalid set of params">>);
-        Exc1:Exc2 ->
-            format_error(list_to_binary([atom_to_list(Exc1), <<":">>, atom_to_list(Exc2)]), "Fail")
+        Exc1:_Exc2 ->
+            format_error(list_to_binary([atom_to_list(Exc1), <<":XXX">>]), "Fail") % TODO: include Exc2
     end.
 
 format_result(Result) ->
