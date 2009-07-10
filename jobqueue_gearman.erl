@@ -1,36 +1,18 @@
 -module(jobqueue_gearman).
--author('Samuel Stauffer <samuel@descolada.com>').
+-author('Samuel Stauffer <samuel@lefora.com>').
 
-% -behaviour(gen_server).
+-export([functions/0]).
 
--export([start/0, start/2, stop/0, objectify/1]).
-
-%% gen_server callbacks
-% -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-%          code_change/3]).
-
--include_lib("gearman.hrl").
 -include_lib("jobqueue.hrl").
 
-start() ->
-    start([{"127.0.0.1"}], 5).
-start(Servers, NumWorkers) ->
-    jobqueue:start(),
-    start_workers(lists:flatten(lists:duplicate(NumWorkers, Servers))).
-
-start_workers([]) ->
-    [];
-start_workers([Server|Servers]) ->
-    [gearman_worker:start(Server, [{"jobqueue", fun dispatcher/1}])|start_workers(Servers)].
-
-stop() ->
-    jobqueue:stop().
+functions() ->
+	[{"jobqueue", fun dispatcher/3}].
 
 %%
 
-dispatcher(Task) ->
+dispatcher(_Handle, _Function, Argument) ->
     Zlib = zlib:open(),
-    {ok, Args} = decode_args(Zlib, Task#task.arg),
+    {ok, Args} = decode_args(Zlib, Argument),
     Method = list_to_atom(binary_to_list(table_lookup(Args, "method"))),
     {obj, Params} = table_lookup(Args, "params"),
     Response = dispatch(Method, Params),

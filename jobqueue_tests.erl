@@ -1,5 +1,5 @@
 -module(jobqueue_tests).
--author('Samuel Stauffer <samuel@descolada.com>').
+-author('Samuel Stauffer <samuel@lefora.com>').
 
 -export([test/0]).
 % -import(jobqueue, [start/0, ]).

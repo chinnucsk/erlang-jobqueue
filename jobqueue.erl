@@ -1,5 +1,5 @@
 -module(jobqueue).
--author('Samuel Stauffer <samuel@descolada.com>').
+-author('Samuel Stauffer <samuel@lefora.com>').
 
 -export([init_datastore/0, start/0, stop/0, stats/0, job_counts/0, insert_job/5,
          find_jobs/1, find_jobs/3,
